@@ -96,7 +96,7 @@ def eval_perturbation_ratio(eval_dataloader, perturb_dataloader, model):
 
     return eval_logs
 
-def get_dataloader(cfg, eval_task, tokenizer, folder, split, question_key, answer_key, base_answer_key, perturbed_answer_key):
+def get_dataloader(cfg, eval_task, tokenizer, folder, split, question_key, answer_key):
 
     torch_format_dataset = TextDatasetQA( 
         folder, 
@@ -106,46 +106,19 @@ def get_dataloader(cfg, eval_task, tokenizer, folder, split, question_key, answe
         split=split, 
         question_key=question_key, 
         answer_key=answer_key
-    ) 
-    base_torch_format_dataset = TextDatasetQA(
-        folder,
-        tokenizer=tokenizer, 
-        model_family=cfg.model_family, 
-        max_length=cfg.generation.max_length, 
-        split=split, 
-        question_key=question_key, 
-        answer_key=base_answer_key
-    )
-
-    perturb_torch_format_dataset = TextDatasetQA(
-        folder,
-        tokenizer=tokenizer, 
-        model_family=cfg.model_family, 
-        max_length=cfg.generation.max_length, 
-        split=split, 
-        question_key=question_key, 
-        answer_key=perturbed_answer_key
     )
 
     if cfg.ds_size:
         torch_format_dataset.data = torch_format_dataset.data.select(range(min(cfg.ds_size, len(torch_format_dataset.data))))
-        base_torch_format_dataset.data = base_torch_format_dataset.data.select(range(min(cfg.ds_size, len(base_torch_format_dataset.data))))
-        perturb_torch_format_dataset.data = perturb_torch_format_dataset.data.select(range(min(cfg.ds_size, len(perturb_torch_format_dataset.data))))
 
 
     eval_dataloader = torch.utils.data.DataLoader(
         torch_format_dataset, batch_size=cfg.batch_size, collate_fn=custom_data_collator_with_indices
     )
-    base_eval_dataloader = torch.utils.data.DataLoader(
-        base_torch_format_dataset, batch_size=cfg.batch_size//4, collate_fn=custom_data_collator_with_indices
-    )
-    perturb_dataloader = torch.utils.data.DataLoader(
-        perturb_torch_format_dataset, batch_size=cfg.batch_size//4, collate_fn=custom_data_collator_with_indices
-    )
 
-    return eval_dataloader, base_eval_dataloader, perturb_dataloader
+    return eval_dataloader
 
-def get_all_evals(cfg, model, tokenizer, eval_task, eval_dataloader, base_eval_dataloader, perturb_dataloader, normalize_gt=False):
+def get_all_evals(cfg, model, tokenizer, eval_task, eval_dataloader, normalize_gt=False):
     eval_logs = {}
 
     gen_outputs = []
@@ -188,7 +161,6 @@ def get_all_evals(cfg, model, tokenizer, eval_task, eval_dataloader, base_eval_d
 
 
     eval_logs.update(eval_rouge_recall(gen_outputs, ground_truths, all_indices))
-    eval_logs.update(eval_perturbation_ratio(base_eval_dataloader, perturb_dataloader, model))
 
     if normalize_gt:
         avg_gt_loss = eval_logs['avg_gt_loss']
@@ -208,7 +180,7 @@ def get_all_evals(cfg, model, tokenizer, eval_task, eval_dataloader, base_eval_d
 
 @hydra.main(version_base=None, config_path="config", config_name="eval_everything")
 def main(cfg):
-    assert len(cfg.data_path)==len(cfg.split_list)==len(cfg.eval_task)==len(cfg.question_key)==len(cfg.answer_key)==len(cfg.base_answer_key)==len(cfg.perturbed_answer_key), "data_path, split, eval_task, question_key, and answer_key must be the same length"
+    assert len(cfg.data_path)==len(cfg.split_list)==len(cfg.eval_task)==len(cfg.question_key)==len(cfg.answer_key), "data_path, split, eval_task, question_key, and answer_key must be the same length"
     Path(cfg.save_dir).mkdir(parents=True, exist_ok=True)
 
     if os.environ.get('LOCAL_RANK') is not None:
@@ -234,13 +206,11 @@ def main(cfg):
         # do thing
             if cfg.use_pretrained:
                 print(f"Loading pretrained from {model_id}")
-                model = AutoModelForCausalLM.from_pretrained(model_id, config=config, use_flash_attention_2=model_cfg["flash_attention2"]=="true", torch_dtype=torch.bfloat16, trust_remote_code = True, device_map='auto')  # , device_map=device_map
+                model = AutoModelForCausalLM.from_pretrained(model_id, config=config, use_flash_attention_2=model_cfg["flash_attention2"]=="true", torch_dtype=torch.bfloat16, trust_remote_code=True, device_map='auto')  # , device_map=device_map
             else:
                 print(f"Loading checkpoint from {cfg.model_path}")
                 # curr_checkpoint_dir = 'locuslab/tofu_ft_phi-1.5/grad_ascent_1e-05_forget01_5/checkpoint-3'
-                # curr_checkpoint_dir = 'locuslab/phi_grad_ascent_1e-05_forget01'
-                # cfg.model_path
-                model = AutoModelForCausalLM.from_pretrained(cfg.model_path, config=config, use_flash_attention_2=model_cfg["flash_attention2"]=="true", torch_dtype=torch.bfloat16, trust_remote_code = True, device_map='auto') #, device_map=device_map
+                model = AutoModelForCausalLM.from_pretrained(cfg.model_path, config=config, use_flash_attention_2=model_cfg["flash_attention2"]=="true", torch_dtype=torch.bfloat16, trust_remote_code=True, device_map='auto') #, device_map=device_map
         except Exception as e:
             print(e)
             continue
@@ -265,7 +235,7 @@ def main(cfg):
     #write custom eval loop using compute_metrics
 
     aggregated_eval_logs = {}
-    for i, (folder, split, question_key, answer_key, eval_task, base_answer_key, perturbed_answer_key) in enumerate(zip(cfg.data_path, cfg.split_list, cfg.question_key, cfg.answer_key, cfg.eval_task, cfg.base_answer_key, cfg.perturbed_answer_key)):
+    for i, (folder, split, question_key, answer_key, eval_task) in enumerate(zip(cfg.data_path, cfg.split_list, cfg.question_key, cfg.answer_key, cfg.eval_task)):
         world_size = int(os.environ.get('WORLD_SIZE', '1'))
         print(f'Working on eval task {eval_task} with split {split}')
         save_filename = os.path.join(cfg.save_dir, f"{eval_task}.json")
@@ -275,12 +245,12 @@ def main(cfg):
             print(f"Skipping {eval_task} because {save_filename} already exists")
             continue
 
-        eval_dataloader, base_eval_dataloader, perturb_dataloader = get_dataloader(cfg, eval_task, tokenizer, folder, split, question_key, answer_key, base_answer_key, perturbed_answer_key)
+        eval_dataloader = get_dataloader(cfg, eval_task, tokenizer, folder, split, question_key, answer_key)
 
         normalize_gt = False 
         if 'eval_log' not in eval_task:
             normalize_gt = True
-        eval_logs = get_all_evals(cfg, model, tokenizer, eval_task, eval_dataloader, base_eval_dataloader, perturb_dataloader, normalize_gt=normalize_gt)
+        eval_logs = get_all_evals(cfg, model, tokenizer, eval_task, eval_dataloader, normalize_gt=normalize_gt)
 
         with open(save_filename, "w") as f:
             # pretty write json to f

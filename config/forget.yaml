@@ -1,12 +1,16 @@
 model_family: llama2-7b
 model_path: null
+
+# model_family: phi
+# model_path: null
+
 LoRA:
   r: 0
   alpha: 32
   dropout: 0.05
 
 lr: 1e-5
-split: forget01
+split: forget10
 data_path: locuslab/TOFU
 batch_size: 16
 gradient_accumulation_steps: 4
