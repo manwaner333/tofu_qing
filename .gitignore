@@ -28,4 +28,5 @@ upload_to_hf.py
 locuslab/*
 results/*
 *.csv
+*.log
 

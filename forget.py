@@ -95,7 +95,7 @@ def main(cfg):
             gradient_accumulation_steps=gradient_accumulation_steps,
             warmup_steps=max(1, steps_per_epoch),
             max_steps=max_steps,
-            learning_rate=cfg.lr,
+            learning_rate=cfg.lr, 
             bf16=True,
             bf16_full_eval=True,
             logging_steps=max(1,max_steps//20),
@@ -132,9 +132,9 @@ def main(cfg):
         print("model_path", model_id, cfg.model_path)
         config = AutoConfig.from_pretrained(model_id)
         print("Loading from checkpoint")
-        model = AutoModelForCausalLM.from_pretrained(cfg.model_path, config=config, use_flash_attention_2=model_cfg["flash_attention2"]=="true", torch_dtype=torch.bfloat16)
+        model = AutoModelForCausalLM.from_pretrained(cfg.model_path, config=config, torch_dtype=torch.bfloat16)   # use_flash_attention_2=model_cfg["flash_attention2"]=="true",
         if cfg.forget_loss == "KL":
-            oracle_model = AutoModelForCausalLM.from_pretrained(cfg.model_path, config=config, use_flash_attention_2=model_cfg["flash_attention2"]=="true", torch_dtype=torch.bfloat16)
+            oracle_model = AutoModelForCausalLM.from_pretrained(cfg.model_path, config=config, torch_dtype=torch.bfloat16)  # use_flash_attention_2=model_cfg["flash_attention2"]=="true"
     else:
         print("Loading after merge and unload")
         model = AutoModelForCausalLM.from_pretrained(model_id, use_flash_attention_2=model_cfg["flash_attention2"]=="true", torch_dtype=torch.bfloat16, trust_remote_code=True)  # , device_map=device_map
@@ -148,7 +148,8 @@ def main(cfg):
     
     # Hot fix for https://discuss.huggingface.co/t/help-with-llama-2-finetuning-setup/50035
     model.generation_config.do_sample = True
-    
+    if oracle_model is not None:
+        oracle_model = oracle_model.half()
     #now we have a HuggingFace model 
     if model_cfg["gradient_checkpointing"] == "true":
         model.gradient_checkpointing_enable()
@@ -179,7 +180,11 @@ def main(cfg):
         eval_cfg = cfg.eval,
     )
     model.config.use_cache = False  # silence the warnings. Please re-enable for inference!
+    
+    model = model.half() 
+
     # trainer.train()
+    
     if cfg.eval_only:
         trainer.evaluate()
     else:

@@ -154,9 +154,9 @@ def get_all_evals(cfg, model, tokenizer, eval_task, eval_dataloader, normalize_g
         if 'generated_text' not in eval_logs:
             eval_logs['generated_text'] = {}
         # print(gt_loss.shape, num_token_gt.shape)
-        eval_logs['avg_gt_loss'].update(dict(zip(indices.cpu().to(torch.float32).numpy().tolist(), gt_loss_per_token.cpu().to(torch.float32).numpy().tolist())))
-        eval_logs['gt_loss'].update(dict(zip(indices.cpu().to(torch.float32).numpy().tolist(), gt_loss.cpu().to(torch.float32).numpy().tolist())))
-        eval_logs['num_token_gt'].update(dict(zip(indices.cpu().to(torch.float32).numpy().tolist(), num_token_gt.cpu().to(torch.float32).numpy().tolist())))
+        # eval_logs['avg_gt_loss'].update(dict(zip(indices.cpu().to(torch.float32).numpy().tolist(), gt_loss_per_token.cpu().to(torch.float32).numpy().tolist())))
+        # eval_logs['gt_loss'].update(dict(zip(indices.cpu().to(torch.float32).numpy().tolist(), gt_loss.cpu().to(torch.float32).numpy().tolist())))
+        # eval_logs['num_token_gt'].update(dict(zip(indices.cpu().to(torch.float32).numpy().tolist(), num_token_gt.cpu().to(torch.float32).numpy().tolist())))
         eval_logs['generated_text'].update(dict(zip(indices.cpu().to(torch.float32).numpy().tolist(), zip(input_string, gen_output,gt))))
 
 
@@ -209,8 +209,10 @@ def main(cfg):
                 model = AutoModelForCausalLM.from_pretrained(model_id, config=config, use_flash_attention_2=model_cfg["flash_attention2"]=="true", torch_dtype=torch.bfloat16, trust_remote_code=True, device_map='auto')  # , device_map=device_map
             else:
                 print(f"Loading checkpoint from {cfg.model_path}")
+                # cfg.model_path
                 # curr_checkpoint_dir = 'locuslab/tofu_ft_phi-1.5/grad_ascent_1e-05_forget01_5/checkpoint-3'
-                model = AutoModelForCausalLM.from_pretrained(cfg.model_path, config=config, use_flash_attention_2=model_cfg["flash_attention2"]=="true", torch_dtype=torch.bfloat16, trust_remote_code=True, device_map='auto') #, device_map=device_map
+                curr_checkpoint_dir = 'locuslab/tofu_ft_llama2-7b/grad_ascent_1e-05_forget10_5/checkpoint-500'
+                model = AutoModelForCausalLM.from_pretrained(curr_checkpoint_dir, config=config, use_flash_attention_2=model_cfg["flash_attention2"]=="true", torch_dtype=torch.bfloat16, trust_remote_code=True, device_map='auto') #, device_map=device_map
         except Exception as e:
             print(e)
             continue

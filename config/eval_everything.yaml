@@ -4,9 +4,9 @@
 model_path: locuslab/tofu_ft_llama2-7b
 model_family: llama2-7b
 
-
+name: grad_ascent
 # save_dir: ${model_path}/eval_results/ds_size${ds_size}
-save_dir: results/${model_path}/eval_results/ds_size${ds_size}
+save_dir: results/${model_path}/${name}/eval_results/ds_size${ds_size}
 
 #dataset path for each of the 4 datasets to be evaluated
 # data_path: [locuslab/TOFU, locuslab/TOFU, locuslab/TOFU, locuslab/TOFU]
@@ -43,7 +43,7 @@ generation:
 
 save_generated_text: true
 
-ds_size: 300
+ds_size: 4000   # 300
 
 overwrite: true
 use_pretrained: false
