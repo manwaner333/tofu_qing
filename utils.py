@@ -3,6 +3,7 @@ import copy
 import numpy as np
 from scipy.stats import sem, hmean, ks_2samp
 from natsort import natsorted
+import re
 def get_model_identifiers_from_yaml(model_family):
     #path is model_configs.yaml
     '''
@@ -162,3 +163,24 @@ def add_dataset_index(dataset):
     indexing = np.arange(len(dataset))
     dataset = dataset.add_column('index', indexing)
     return dataset
+
+
+def get_name_to_replace(anchor, anchor_mention, replace_name):
+    # replace full name
+    if len(anchor_mention.split()) > 1 or len(anchor.split()) == 1 or len(replace_name.split()) == 1:
+        return replace_name
+    # replace first name
+    if anchor_mention.lower() == anchor.split()[0].lower():
+        return replace_name.split()[0]
+    # replace last name
+    return replace_name.split()[-1]
+
+
+def replace_name(original_mentions, original_name, replace_name, content, consistent_person_name=True):
+    for ent in original_mentions:
+        # special case for ent's
+        if consistent_person_name:
+            ent = ent.replace("'s", "").replace("’s", "")
+        name_to_replace = get_name_to_replace(original_name, ent, replace_name) if consistent_person_name else replace_name
+        content = re.sub(r'\b' + re.escape(ent) + r'\b', name_to_replace, content, flags=re.IGNORECASE)
+    return content

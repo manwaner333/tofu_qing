@@ -12,12 +12,13 @@ LoRA:
 lr: 1e-5
 split: forget10
 data_path: locuslab/TOFU
-batch_size: 2  # 2   # 16
-gradient_accumulation_steps: 2  # 2 # 4
+batch_size: 16  # 2   # 16
+gradient_accumulation_steps: 4  # 2 # 4
 num_epochs: 5  # 5
-forget_loss: idk  # grad_diff  # grad_ascent
+forget_loss: KL   # dpo  # idk  # grad_diff  # grad_ascent
 
 save_dir: ${model_path}/${forget_loss}_${lr}_${split}_${num_epochs}
+# save_dir: path/${forget_loss}_${lr}_${split}_${num_epochs}
 overwrite_dir: false
 weight_decay: 0.01
 save_model: true

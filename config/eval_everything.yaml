@@ -1,40 +1,41 @@
 # model_path: locuslab/phi_grad_ascent_1e-05_forget01
-# model_family: phi   # llama2-7b
+# model_family: phi 
 
-model_path: locuslab/tofu_ft_llama2-7b
+
 model_family: llama2-7b
 
-name: grad_ascent
-# save_dir: ${model_path}/eval_results/ds_size${ds_size}
-save_dir: results/${model_path}/${name}/eval_results/ds_size${ds_size}
+use_ori_pretrained: False
+
+use_fine_tune: True
+# model_path: locuslab/tofu_ft_llama2-7b
+# model_path: locuslab/tofu_ft_llama2-7b/grad_ascent_1e-05_forget10_5/checkpoint-100
+# model_path: locuslab/tofu_ft_llama2-7b/grad_diff_1e-05_forget10_5/checkpoint-100
+# model_path: locuslab/tofu_ft_llama2-7b/grad_ascent_1e-05_forget10_5/checkpoint-31
+# model_path: /home/jovyan/geng/tofu/path/grad_ascent_1e-05_forget10_5/checkpoint-31
+# model_path: locuslab/tofu_ft_llama2-7b/grad_ascent_1e-05_forget10_5/checkpoint-12
+# model_path: locuslab/tofu_ft_llama2-7b/grad_diff_1e-05_forget10_5/checkpoint-12
+# model_path: locuslab/tofu_ft_llama2-7b/idk_1e-05_forget10_5/checkpoint-12
+model_path: locuslab/tofu_ft_llama2-7b/KL_1e-05_forget10_5/checkpoint-12
+
+
+save_dir: results/${model_path}/eval_results/ds_size${ds_size}
 
 #dataset path for each of the 4 datasets to be evaluated
-# data_path: [locuslab/TOFU, locuslab/TOFU, locuslab/TOFU, locuslab/TOFU]
-# split: forget01_perturbed
-# split_list:
-#   - retain_perturbed
-#   - real_authors_perturbed
-#   - world_facts_perturbed
-#   - ${split}
-
-# question_key: [question, question, question, question]
-# answer_key: [answer, answer, answer, answer]
-
-# base_answer_key: [paraphrased_answer, answer, answer, paraphrased_answer]
-# perturbed_answer_key: [perturbed_answer, perturbed_answer, perturbed_answer, perturbed_answer]
-
-# eval_task: [eval_log, eval_real_author_wo_options, eval_real_world_wo_options, eval_log_forget]
-
-
-data_path: [locuslab/TOFU]
-split: full
+data_path: [locuslab/TOFU, locuslab/TOFU, locuslab/TOFU, locuslab/TOFU]
+split: forget10_perturbed
 split_list:
+  - retain_perturbed
+  - real_authors_perturbed
+  - world_facts_perturbed
   - ${split}
 
-question_key: [question]
-answer_key: [answer]
-eval_task: [eval_log]
+question_key: [question, question, question, question]
+answer_key: [answer, answer, answer, answer]
 
+base_answer_key: [paraphrased_answer, answer, answer, paraphrased_answer]
+perturbed_answer_key: [perturbed_answer, perturbed_answer, perturbed_answer, perturbed_answer]
+
+eval_task: [eval_log, eval_real_author_wo_options, eval_real_world_wo_options, eval_log_forget]
 
 
 generation:
@@ -43,13 +44,20 @@ generation:
 
 save_generated_text: true
 
-ds_size: 4000   # 300
-
+ds_size: 400   # 300
 overwrite: true
-use_pretrained: false
-
-batch_size: 30
+batch_size: 20  # 30
 reinitialize_weights: false
-
 retain_result: null
+forget_loss: grad_ascent
 
+
+
+# data_path: [locuslab/TOFU]
+# split: full
+# split_list:
+#   - ${split}
+
+# question_key: [question]
+# answer_key: [answer]
+# eval_task: [eval_log]

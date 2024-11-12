@@ -29,4 +29,5 @@ locuslab/*
 results/*
 *.csv
 *.log
+resource.py
 

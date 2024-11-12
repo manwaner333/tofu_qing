@@ -11,8 +11,8 @@ phi:
   question_start_tag: "Question: "
   question_end_tag: "\n"
   answer_tag: "Answer: "
-  flash_attention2: "false"
-  gradient_checkpointing: "false"
+  flash_attention2: "true"   # "false"
+  gradient_checkpointing: "true"   # "false"
   ft_model_path: "locuslab/tofu_ft_phi-1.5"
 stablelm:
   hf_key: "stabilityai/stablelm-3b-4e1t"

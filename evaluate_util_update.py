@@ -11,6 +11,185 @@ from utils import get_model_identifiers_from_yaml, get_model_utility, get_forget
 import torch.nn as nn
 import csv 
 import numpy as np 
+from transformers import pipeline
+import jsonlines
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics.pairwise import cosine_similarity
+import nltk
+from scipy.stats import hmean
+
+
+def read_jsonline(file_path):
+    data = []
+    with open(file_path, "r+", encoding="utf8") as f:
+        for item in jsonlines.Reader(f):
+            data.append(item)
+    return data
+
+def eval_cosine_similarity(gen_outputs, ground_truths):
+    scores = []
+    model = SentenceTransformer("paraphrase-MiniLM-L6-v2", device=torch.device('cuda'))
+    with torch.no_grad():
+        for gen, gt in zip(gen_outputs, ground_truths):
+            gen_embedding = model.encode(gen, show_progress_bar=False)
+            gt_embedding = model.encode(gt, show_progress_bar=False)
+            cosine_sim = cosine_similarity([gen_embedding], [gt_embedding])[0][0]
+            scores.append(float(max(0, cosine_sim)))
+
+    return {'cosine_similarity': scores}
+
+
+def compute_token_entropy(tokenizer, sentence, normalize=True):
+    # get n-gram dist
+    tokens = tokenizer.tokenize(sentence)
+    ngrams = nltk.ngrams(tokens, 1)
+    fdist = nltk.FreqDist(ngrams)
+    # get n-gram freq
+    freqs = np.array([freq for _, freq in fdist.items()])
+    freqs = freqs / freqs.sum()
+
+    entropy = np.sum(-freqs * np.log(freqs) / np.log(2))
+
+    num_ngrams = len(tokens)
+    if num_ngrams <= 1:
+        return 0  # If there are not enough n-grams, entropy is 0
+    max_entropy = np.log2(num_ngrams)
+
+    # Normalize entropy
+    normalized_entropy = entropy / max_entropy
+
+    return normalized_entropy if normalize else entropy
+
+
+def token_entropy(tokenizer, gen_texts, normalize=True):
+    return {'token_entropy': [compute_token_entropy(tokenizer, txt, normalize) for txt in gen_texts]}
+
+def get_entailment_results(pipe, gen_outputs, ground_truths, eval_task, rouge_scores, bs=30, tofu=True):
+    results = []
+    for i in range(0, len(gen_outputs), bs):
+        targets = ground_truths[i:i + bs]
+        outputs = gen_outputs[i:i + bs]
+        data_list = []
+        # 能否从answer推断output
+        for i in range(len(targets)):
+            # For real world scenarios
+            if not tofu:
+                # for foget set & retain set
+                data_list.append({
+                    'text': outputs[i],
+                    'text_pair': targets[i]
+
+                })
+            # For TOFU
+            else:
+                if 'forget' in eval_task:
+                    # for foget set 
+                    data_list.append({
+                        'text': outputs[i],
+                        'text_pair': targets[i]
+
+                    })
+                else:
+                    # for foget set & retain set & real author & real world
+                    data_list.append({
+                        'text': targets[i],
+                        'text_pair': outputs[i]
+
+                    })
+        results.extend(pipe(data_list))
+
+    entailment_labels = []
+    for i, result in enumerate(results):
+        # If ROUGE is less than 0.1, we consider the output is factually incorrect.
+        if rouge_scores[i] < 0.1:
+            label = 'none'
+        else:
+            label = result['label']
+        entailment_labels.append(label)
+    return {'entailment_labels': entailment_labels}
+
+
+def get_entailment_score(entailment_labels):
+    correct = 0
+    for label in entailment_labels:
+        if label == 'entailment':
+            correct += 1
+    return correct / len(entailment_labels)
+
+def get_eval_results(eval_result_dict):
+    eval_task_dict = {
+        'eval_real_author_wo_options.json': 'Real Authors',
+        'eval_real_world_wo_options.json': 'Real World',
+        'eval_log.json': 'Retain',
+        'eval_log_forget.json': 'Forget'
+    }
+
+    eval_tasks = list(eval_task_dict.keys())
+    metrics = ['ROUGE', 'Probability', 'Truth Ratio', 'Token Entropy', 'Cosine Similarity', 'Entailment Score']
+    output_result = {}
+    for eval_task in eval_tasks:
+        if eval_task in eval_result_dict.keys():
+            for metric in metrics:
+                output_result[eval_task_dict[eval_task] + ' ' + metric] = []
+
+    # k is different files
+    for k, v in eval_result_dict.items():
+        # getting Probability
+        if 'eval_log' in k:
+            gt_probs = np.exp(-1 * np.array(list(eval_result_dict[k]['avg_gt_loss'].values())))
+            avg_gt_prob = np.mean(gt_probs)
+        else:
+            avg_true_prob = np.exp(-1 * np.array(list(eval_result_dict[k]['avg_gt_loss'].values())))
+            avg_false_prob = np.exp(-1 * np.array(list(eval_result_dict[k]['average_perturb_loss'].values())))
+            avg_all_prob = np.concatenate([np.expand_dims(avg_true_prob, axis=-1), avg_false_prob], axis=1).sum(-1)
+            avg_gt_prob = np.mean(avg_true_prob / avg_all_prob)
+        output_result[f'{eval_task_dict[k]} Probability'] = avg_gt_prob
+
+        # getting ROUGE
+        avg_rouge = np.array(list(eval_result_dict[k]['rougeL_recall'].values())).mean()
+        output_result[f'{eval_task_dict[k]} ROUGE'] = avg_rouge
+
+        # getting Truth Ratio
+        avg_paraphrase_np_values = np.array(list(eval_result_dict[k]['avg_paraphrased_loss'].values()))
+        avg_perturbed_np_values = np.array(list(eval_result_dict[k]['average_perturb_loss'].values()))
+        avg_perturbed_np_values = avg_perturbed_np_values.mean(axis=-1)
+
+        curr_stat_1 = np.exp(avg_perturbed_np_values - avg_paraphrase_np_values)
+        # output_result[f'{eval_task_dict[k]} paraphrased_over_perturbed'] = curr_stat_1
+        if 'forget' in k:
+            paraphrased_perturb_ratio = 1 - np.mean(np.minimum(curr_stat_1, 1 / curr_stat_1))
+        else:
+            paraphrased_perturb_ratio = np.mean(np.maximum(0, 1 - 1 / curr_stat_1))
+
+        output_result[f'{eval_task_dict[k]} Truth Ratio'] = paraphrased_perturb_ratio
+        output_result[f'{eval_task_dict[k]} Token Entropy'] = np.array(eval_result_dict[k]['token_entropy']).mean()
+        output_result[f'{eval_task_dict[k]} Cosine Similarity'] = np.array(
+            eval_result_dict[k]['cosine_similarity']).mean()
+        output_result[f'{eval_task_dict[k]} Entailment Score'] = get_entailment_score(
+            eval_result_dict[k]['entailment_labels'])
+
+    model_utility_retain_cands = []
+    model_utility_cands = []
+    forget_efficacy_cands = []
+    for k, v in output_result.items():
+        # all six metrics
+        if 'Forget' not in k:
+            # model utlity
+            model_utility_cands.append(v)
+            if 'Retain' in k:
+                # only consider the metrics on retain/neighbor set
+                model_utility_retain_cands.append(v)
+        else:
+            # forget_efficacy
+            if 'Entropy' not in k:  # exclude the token entropy
+                forget_efficacy_cands.append(v)
+
+    output_result['Model Utility Retain'] = hmean(model_utility_retain_cands)
+    output_result['Model Utility'] = hmean(model_utility_cands)
+    # The larger the value, the worse the performance on Forget Set.
+    output_result['Forget Efficacy'] = 1.0 - np.mean(forget_efficacy_cands)
+
+    return output_result
 
 def eval_perturbation_ratio(eval_dataloader, perturb_dataloader, model):
     eval_logs = {}
@@ -184,11 +363,18 @@ def get_all_evals(cfg, model, tokenizer, eval_task, eval_dataloader, base_eval_d
         eval_logs['avg_gt_loss'].update(dict(zip(indices.cpu().to(torch.float32).numpy().tolist(), gt_loss_per_token.cpu().to(torch.float32).numpy().tolist())))
         eval_logs['gt_loss'].update(dict(zip(indices.cpu().to(torch.float32).numpy().tolist(), gt_loss.cpu().to(torch.float32).numpy().tolist())))
         eval_logs['num_token_gt'].update(dict(zip(indices.cpu().to(torch.float32).numpy().tolist(), num_token_gt.cpu().to(torch.float32).numpy().tolist())))
-        eval_logs['generated_text'].update(dict(zip(indices.cpu().to(torch.float32).numpy().tolist(), zip(input_string, gen_output,gt))))
+        eval_logs['generated_text'].update(dict(zip(indices.cpu().to(torch.float32).numpy().tolist(), zip(input_string, gen_output, gt))))
 
 
-    eval_logs.update(eval_rouge_recall(gen_outputs, ground_truths, all_indices))
+    rouge_cores = eval_rouge_recall(gen_outputs, ground_truths, all_indices)
+    eval_logs.update(rouge_cores)
     eval_logs.update(eval_perturbation_ratio(base_eval_dataloader, perturb_dataloader, model))
+    
+    es_pipe = pipeline("text-classification", model="sileod/deberta-v3-base-tasksource-nli", device=torch.device('cuda'))
+    
+    eval_logs.update(eval_cosine_similarity(gen_outputs, ground_truths))
+    eval_logs.update(get_entailment_results(es_pipe, gen_outputs, ground_truths, eval_task, rouge_cores['rougeL_recall'], bs=30, tofu=True))
+    eval_logs.update(token_entropy(tokenizer, gen_outputs, normalize=True))
 
     if normalize_gt:
         avg_gt_loss = eval_logs['avg_gt_loss']
@@ -208,7 +394,7 @@ def get_all_evals(cfg, model, tokenizer, eval_task, eval_dataloader, base_eval_d
 
 @hydra.main(version_base=None, config_path="config", config_name="eval_everything")
 def main(cfg):
-    assert len(cfg.data_path)==len(cfg.split_list)==len(cfg.eval_task)==len(cfg.question_key)==len(cfg.answer_key)==len(cfg.base_answer_key)==len(cfg.perturbed_answer_key), "data_path, split, eval_task, question_key, and answer_key must be the same length"
+    
     Path(cfg.save_dir).mkdir(parents=True, exist_ok=True)
 
     if os.environ.get('LOCAL_RANK') is not None:
@@ -229,26 +415,16 @@ def main(cfg):
 
     model = None
     config = AutoConfig.from_pretrained(model_id)
-    for attempt in range(3):
-        try:
-        # do thing
-            if cfg.use_pretrained:
-                print(f"Loading pretrained from {model_id}")
-                model = AutoModelForCausalLM.from_pretrained(model_id, config=config, use_flash_attention_2=model_cfg["flash_attention2"]=="true", torch_dtype=torch.bfloat16, trust_remote_code = True, device_map='auto')  # , device_map=device_map
-            else:
-                print(f"Loading checkpoint from {cfg.model_path}")
-                # curr_checkpoint_dir = 'locuslab/tofu_ft_phi-1.5/grad_ascent_1e-05_forget01_5/checkpoint-3'
-                curr_checkpoint_dir = 'locuslab/phi_grad_ascent_1e-05_forget01'
-                # cfg.model_path
-                model = AutoModelForCausalLM.from_pretrained(curr_checkpoint_dir, config=config, use_flash_attention_2=model_cfg["flash_attention2"]=="true", torch_dtype=torch.bfloat16, trust_remote_code = True, device_map='auto') #, device_map=device_map
-        except Exception as e:
-            print(e)
-            continue
-        # perhaps reconnect, etc.
-        else:
-            break
+    
+    if cfg.use_ori_pretrained:
+        print(f"Loading pretrained from {model_id}")
+        model = AutoModelForCausalLM.from_pretrained(model_id, config=config, use_flash_attention_2=model_cfg["flash_attention2"]=="true", torch_dtype=torch.bfloat16, trust_remote_code = True, device_map='auto')  # , device_map=device_map
+    elif cfg.use_fine_tune:
+        print(f"Loading checkpoint from {cfg.model_path}")
+        model = AutoModelForCausalLM.from_pretrained(cfg.model_path, config=config, use_flash_attention_2=model_cfg["flash_attention2"]=="true", torch_dtype=torch.bfloat16, trust_remote_code = True, device_map='auto') #, device_map=device_map
     else:
         print("Error: could not load model")
+
     model = model.eval()
     
     def reinitialize_weights(model) -> None:
@@ -289,10 +465,42 @@ def main(cfg):
         aggregated_eval_logs[f'{eval_task}.json'] = eval_logs
 
     aggregated_eval_log_filename = os.path.join(cfg.save_dir, "eval_log_aggregated.json")
-
+    
     with open(aggregated_eval_log_filename, "w") as f:
         # pretty write json to f
         json.dump(aggregated_eval_logs, f, indent=4)
+        
+    eval_results = get_eval_results(aggregated_eval_logs)
+    
+    aggregate_stat = {**eval_results}
+
+    print(aggregate_stat)
+
+    aggregate_stat['split'] = cfg.split
+    aggregate_stat['forget_loss'] = cfg.forget_loss
+
+
+    with open(os.path.join(cfg.save_dir, "non_gpt_eval_unlearning_results.txt"), 'w') as txtfile:
+        for key, value in aggregate_stat.items():
+            txtfile.write(f"{key}: {value}\n")
+
+    save_file = os.path.join(cfg.save_dir, "non_gpt_eval_unlearning_results.csv")
+    with open(save_file, 'a') as f:
+        w = csv.DictWriter(f, aggregate_stat.keys())
+        w.writeheader()
+        w.writerow(aggregate_stat)
+
+    # all_task_save_file = os.path.join(cfg.save_dir, "all_unlearning_results.csv")
+    # if not os.path.exists(all_task_save_file) or os.path.getsize(all_task_save_file) == 0:
+    #     with open(all_task_save_file, 'a') as f:
+    #         w = csv.DictWriter(f, aaggregate_stat.keys())
+    #         w.writeheader()
+    #         w.writerow(aaggregate_stat)
+    # else:
+    #     with open(all_task_save_file, 'a') as f:
+    #         w = csv.DictWriter(f, aaggregate_stat.keys())
+    #         w.writerow(aaggregate_stat)
+    
                     
 
 def eval_accuracy(logits, labels):

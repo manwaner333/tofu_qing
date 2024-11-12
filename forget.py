@@ -1,5 +1,5 @@
 from data_module import TextForgetDatasetQA, TextForgetDatasetDPOQA
-from dataloader import CustomTrainerForgetting, custom_data_collator_forget
+from dataloader import CustomTrainerForgetting, custom_data_collator_forget, custom_data_collator_forget_dpo
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, set_seed
 
@@ -95,7 +95,7 @@ def main(cfg):
             gradient_accumulation_steps=gradient_accumulation_steps,
             warmup_steps=max(1, steps_per_epoch),
             max_steps=max_steps,
-            learning_rate=cfg.lr, 
+            learning_rate=cfg.lr,
             bf16=True,
             bf16_full_eval=True,
             logging_steps=max(1,max_steps//20),
@@ -125,19 +125,20 @@ def main(cfg):
         if re.search("model-*\.safetensors", file):
             path_found = True
             break
-
+    
     oracle_model = None
-
     if path_found:
         print("model_path", model_id, cfg.model_path)
         config = AutoConfig.from_pretrained(model_id)
         print("Loading from checkpoint")
-        model = AutoModelForCausalLM.from_pretrained(cfg.model_path, config=config, torch_dtype=torch.bfloat16)   # use_flash_attention_2=model_cfg["flash_attention2"]=="true",
-        if cfg.forget_loss == "KL":
-            oracle_model = AutoModelForCausalLM.from_pretrained(cfg.model_path, config=config, torch_dtype=torch.bfloat16)  # use_flash_attention_2=model_cfg["flash_attention2"]=="true"
+        model = AutoModelForCausalLM.from_pretrained(cfg.model_path, config=config, torch_dtype=torch.float16, use_flash_attention_2=model_cfg["flash_attention2"]=="true", trust_remote_code=True) 
+        # for name, param in model.named_parameters():
+        #     print(f"Layer: {name}, dtype: {param.dtype}")
+        if (cfg.forget_loss == "KL"):      # or (cfg.forget_loss == "dpo"):
+            oracle_model = AutoModelForCausalLM.from_pretrained(cfg.model_path, config=config, torch_dtype=torch.bfloat16, use_flash_attention_2=model_cfg["flash_attention2"]=="true", trust_remote_code=True)  
     else:
         print("Loading after merge and unload")
-        model = AutoModelForCausalLM.from_pretrained(model_id, use_flash_attention_2=model_cfg["flash_attention2"]=="true", torch_dtype=torch.bfloat16, trust_remote_code=True)  # , device_map=device_map
+        model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.bfloat16, trust_remote_code=True, device_map=device_map)  
         #now use the checkpoint to add the LoRA modules
         model = PeftModel.from_pretrained(model, model_id = cfg.model_path)
         #save this as a standard model so that we can again do PEFT style finetuneing from scratch
@@ -145,14 +146,17 @@ def main(cfg):
         #save the model for next time
         model.save_pretrained(cfg.model_path)
     
-    
+                
     # Hot fix for https://discuss.huggingface.co/t/help-with-llama-2-finetuning-setup/50035
     model.generation_config.do_sample = True
-    if oracle_model is not None:
-        oracle_model = oracle_model.half()
+    
+    # if oracle_model is not None:
+    #     oracle_model = oracle_model.half()
+    
     #now we have a HuggingFace model 
     if model_cfg["gradient_checkpointing"] == "true":
         model.gradient_checkpointing_enable()
+    
     config = LoraConfig(
         r=cfg.LoRA.r, 
         lora_alpha=cfg.LoRA.alpha, 
@@ -161,6 +165,7 @@ def main(cfg):
         bias="none", 
         task_type="CAUSAL_LM"
     )
+    
     if cfg.LoRA.r != 0:
         model = get_peft_model(model, config)
         print_trainable_parameters(model)
@@ -181,10 +186,8 @@ def main(cfg):
     )
     model.config.use_cache = False  # silence the warnings. Please re-enable for inference!
     
-    model = model.half() 
+    # model = model.half() 
 
-    # trainer.train()
-    
     if cfg.eval_only:
         trainer.evaluate()
     else:

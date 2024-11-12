@@ -1,0 +1,18 @@
+model_family: llama2-7b
+# model_path: "meta-llama/Llama-2-7b-chat-hf"
+
+
+# model_family: phi
+# model_path: locuslab/phi_grad_ascent_1e-05_forget01
+
+
+model_path: locuslab/tofu_ft_llama2-7b/grad_ascent_1e-05_forget10_5/checkpoint-12
+
+forget_loss: grad_ascent
+save_dir: results/${model_path}/eval_results/ds_size${ds_size}
+
+
+
+data_path: locuslab/TOFU
+split: forget10_perturbed
+ds_size: 400 
