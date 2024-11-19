@@ -7,19 +7,19 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 # 创建相关的数据
 
-# dataset = load_dataset("locuslab/TOFU","forget10")["train"]
-# answers_file = 'data/tofu/answers_forget10.json'
-# answers_file = os.path.expanduser(answers_file)
-# if os.path.exists(answers_file):
-#     os.remove(answers_file)
-# os.makedirs(os.path.dirname(answers_file), exist_ok=True)
-# with open(answers_file, 'w') as file:
-#     for ele in dataset:
-#         question = ele["question"]
-#         answer = ele["answer"]
-#         json.dump(ele, file)
-#         file.write('\n')
-#         qingli = 3
+dataset = load_dataset("locuslab/TOFU","forget10")["train"]
+answers_file = 'data/forget10.json'
+answers_file = os.path.expanduser(answers_file)
+if os.path.exists(answers_file):
+    os.remove(answers_file)
+os.makedirs(os.path.dirname(answers_file), exist_ok=True)
+with open(answers_file, 'w') as file:
+    for ele in dataset:
+        question = ele["question"]
+        answer = ele["answer"]
+        json.dump(ele, file)
+        file.write('\n')
+        qingli = 3
 
 
 # 读取响应的模型
@@ -68,5 +68,26 @@ def test_tofu_model(model="llama"):
 
 
 
+
+
+
+
 if __name__ == "__main__":
-    test_tofu_model(model="phi")
+    # test_tofu_model(model="phi")
+    dataset = load_dataset("locuslab/TOFU","forget10")["train"]
+    answers_file = 'data/forget10.json'
+    answers_file = os.path.expanduser(answers_file)
+    if os.path.exists(answers_file):
+        os.remove(answers_file)
+    os.makedirs(os.path.dirname(answers_file), exist_ok=True)
+    with open(answers_file, 'w') as file:
+        for ele in dataset:
+            question = ele["question"]
+            answer = ele["answer"]
+            json.dump(ele, file)
+            file.write('\n')
+            qingli = 3
+    
+    
+    
+    

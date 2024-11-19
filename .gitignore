@@ -30,4 +30,6 @@ results/*
 *.csv
 *.log
 resource.py
+data/*.jsonl
+vectors/*
 

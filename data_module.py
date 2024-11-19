@@ -5,6 +5,8 @@ from torch.nn.utils.rnn import pad_sequence
 import datasets
 from utils import get_model_identifiers_from_yaml, add_dataset_index
 
+
+
 def convert_raw_data_to_model_format(tokenizer, max_length,  question, answer, model_configs):
     question_start_token, question_end_token, answer_token = model_configs['question_start_tag'], model_configs['question_end_tag'], model_configs['answer_tag']
     new_question = question_start_token + question + question_end_token
@@ -151,6 +153,7 @@ class TextDatasetQA(Dataset):
                 torch.tensor(indices)
 
 
+              
 def collate_fn(batch):
     input_ids, attention_masks = zip(*batch)
     input_ids = pad_sequence(input_ids, batch_first=True, padding_value=-100)

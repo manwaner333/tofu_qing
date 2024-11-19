@@ -193,7 +193,7 @@ def get_eval_results(eval_result_dict):
 
 def eval_perturbation_ratio(eval_dataloader, perturb_dataloader, model):
     eval_logs = {}
-    for batch, perturb_batch in tqdm(zip(eval_dataloader, perturb_dataloader)):
+    for batch, perturb_batch in tqdm(zip(eval_dataloader, perturb_dataloader), total=min(len(eval_dataloader), len(perturb_dataloader))):
         input_ids, labels, attention_mask, indices = batch
         batch = {"input_ids": input_ids, "labels": labels, "attention_mask": attention_mask}
         perturb_input_ids, perturb_labels, perturb_attention_mask, _ = perturb_batch
